@@ -1,0 +1,51 @@
+# .github/workflows/deploy.yml
+name: Deploy
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+
+jobs:
+  deploy:
+    name: Deploy to ftp
+    runs-on: ubuntu-latest
+    container: docker.io/composer/composer:2
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate composer.json and composer.lock
+        id: composer-validation
+        run: composer validate --strict --no-interaction
+        env:
+          COMPOSER_ALLOW_SUPERUSER: 1
+
+      - name: Cache Composer packages
+        id: composer-cache
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: ${{ runner.os }}-php-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-
+
+      - name: Install Dependencies
+        id: composer-deps
+        run: composer install --no-interaction --ignore-platform-req=ext-http
+        env:
+          COMPOSER_ALLOW_SUPERUSER: 1
+
+      - name: Install lftp
+        run: apk add lftp
+
+      - name: Deploy to FTP server
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          HOMEDIR: ${{ secrets.HOMEDIR }}
+        run: | 
+          lftp -c "set ftp:ssl-allow no; open -u $FTP_USERNAME,$FTP_PASSWORD $FTP_HOST; mirror --reverse --delete --verbose --include-glob=.{*,*} --include-glob=*  --exclude .git --exclude deploy . $HOMEDIR"
+
+
